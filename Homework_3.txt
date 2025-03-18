@@ -1,0 +1,187 @@
+library(tidyverse)
+library(janitor)
+library(rstatix)
+
+# Load and clean data
+df <- read_csv("mobiles_dataset.csv") %>%
+  clean_names() %>%
+  mutate(price_usd = (launched_price_pakistan_pkr * 0.0036 +
+                        launched_price_india_inr * 0.011 +
+                        launched_price_china_cny * 0.14 +
+                        launched_price_usa_usd +
+                        launched_price_dubai_aed * 0.27) / 5)
+
+# 1. Battery capacity vs price analysis
+# Scatter plot
+ggplot(df, aes(x = battery_capacity_m_ah, y = price_usd)) +
+  geom_point() +
+  labs(title = "Battery Capacity vs Price",
+       x = "Battery Capacity (mAh)",
+       y = "Price (USD)") +
+  theme_minimal()
+
+# Porrelation
+cor_test <- cor.test(df$battery_capacity_m_ah, df$price_usd, method = "pearson")
+cat(paste("Correlation:", round(cor_test$estimate, 2), "\n"))
+
+# 2. RAM size impact analysis
+# Boxplot
+ggplot(df, aes(x = factor(ram), y = price_usd)) +
+  geom_boxplot() +
+  labs(title = "RAM vs Price",
+       x = "RAM (GB)",
+       y = "Price (USD)") +
+  theme_minimal()
+
+# ANOVA test
+anova_result <- aov(price_usd ~ factor(ram), data = df)
+cat(paste("ANOVA test: p-value =", round(summary(anova_result)[[1]]$'Pr(>F)'[1], 4), "\n"))
+
+# 3. Apple price variation analysis
+apple_prices <- df %>%
+  filter(company_name == "Apple") %>%
+  select(contains("launched_price")) %>%
+  summarise(across(everything(), sd, na.rm = TRUE))
+
+cat("Apple price variation:\n")
+print(apple_prices)
+
+# 4. Price category analysis
+df <- df %>%
+  mutate(category = case_when(
+    price_usd < 300 ~ "Budget",
+    price_usd >= 300 & price_usd < 700 ~ "Mid-range",
+    TRUE ~ "Premium"
+  ))
+
+category_counts <- df %>%
+  group_by(company_name, category) %>%
+  count() %>%
+  pivot_wider(names_from = category, values_from = n)
+
+print("Price category counts:")
+print(category_counts)
+
+# Define brand order and colors once
+brand_order <- c("Apple", "Google", "Honor", "Huawei", "Infinix", "iQOO", "Lenovo",
+                 "Motorola", "Nokia", "OnePlus", "Oppo", "POCO", "Realme",
+                 "Samsung", "Sony", "Tecno", "Vivo", "Xiaomi")
+
+brand_colors <- c(
+  "Apple" = "#F8766D", "Google" = "#E9842C", "Honor" = "#D69100",
+   "Huawei" = "#BC9D00", "Infinix" = "#9CA700", "iQOO" = "#598907",
+   "Lenovo" = "#00B813", "Motorola" = "#00BD61", "Nokia" = "#1C7E64",
+   "OnePlus" = "#00C0B4", "Oppo" = "#00BDD4", "Poco" = "#303030",
+   "POCO" = "#00A7FF", "Realme" = "#7F96FF", "Samsung" = "#BC81FF",
+   "Sony" = "#E26EF7", "Tecno" = "#F863DF", "Vivo" = "#FF62BF",
+   "Xiaomi" = "#FF6A9A"
+)
+
+# Price conversion
+df <- df %>%
+  mutate(price_usd = (launched_price_pakistan_pkr * 0.0036 +
+                        launched_price_india_inr * 0.011 +
+                        launched_price_china_cny * 0.14 +
+                        launched_price_usa_usd +
+                        launched_price_dubai_aed * 0.27) / 5)
+
+# 1. Regional Price Comparison (Bar Chart)
+region_avg_prices <- df %>%
+  summarise(
+    Pakistan = mean(launched_price_pakistan_pkr, na.rm = TRUE) * 0.0036,
+    India = mean(launched_price_india_inr, na.rm = TRUE) * 0.011,
+    China = mean(launched_price_china_cny, na.rm = TRUE) * 0.14,
+    USA = mean(launched_price_usa_usd, na.rm = TRUE),
+    Dubai = mean(launched_price_dubai_aed, na.rm = TRUE) * 0.27
+  ) %>%
+  tidyr::pivot_longer(everything(), names_to = "Region", values_to = "Avg_Price")
+
+ggplot(region_avg_prices, aes(x = Region, y = Avg_Price, fill = Region)) +
+  geom_col() +
+  labs(title = "Average Smartphone Prices per Region (USD)",
+       y = "Price (USD)", x = "") +
+  theme_minimal() +
+  scale_fill_brewer(palette = "Set2")
+
+# 2. Market Share (Pie Chart)
+brand_counts <- df %>%
+  count(company_name, name = "Count") %>%
+  mutate(company_name = factor(company_name, levels = brand_order)) %>%
+  arrange(desc(Count))
+
+ggplot(brand_counts, aes(x = "", y = Count, fill = company_name)) +
+  geom_bar(stat = "identity", width = 1) +
+  coord_polar(theta = "y") +
+  labs(title = "Market Share of Smartphone Brands") +
+  theme_void() +
+  scale_fill_manual(values = brand_colors)
+
+# 3. USA Price Distribution (Boxplot)
+df_usa <- df %>%
+  filter(!is.na(launched_price_usa_usd)) %>%
+  mutate(company_name = factor(company_name, levels = brand_order))
+
+ggplot(df_usa, aes(x = company_name, y = launched_price_usa_usd, fill = company_name)) +
+  geom_boxplot(alpha = 0.7) +
+  geom_jitter(width = 0.15, size = 1.5, alpha = 0.5) +
+  labs(title = "Price Distribution by Company in USA",
+       subtitle = "A boxplot showing how the price varies by company, with individual data points overload",
+       x = "", y = "Price (USD)") +
+  theme_minimal() +
+  scale_fill_manual(values = brand_colors) +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "none",
+    plot.title = element_text(face = "bold", size = 14),  # Bold title
+    plot.subtitle = element_text(face = "italic", size = 10)  # Italic subtitle
+  )
+
+# 4. Battery vs Price (Scatter Plot)
+ggplot(df_usa, aes(x = battery_capacity_m_ah, y = launched_price_usa_usd,
+                   color = company_name)) +
+  geom_point(size = 3, alpha = 0.8) +
+  labs(title = "Battery Capacity vs. Price in USA",
+       subtitle = "The relationship between battery capacity, price and screen size across different smartphone brands",
+       x = "Battery Capacity (mAh)", y = "Price (USD)") +
+  theme_minimal() +
+  scale_color_manual(values = brand_colors) +
+  guides(color = guide_legend(ncol = 2)) +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),  # Bold title
+    plot.subtitle = element_text(face = "italic", size = 10)  # Italic subtitle
+  )
+
+# Filter for top 5 brands
+top_brands <- c("Apple", "Honor", "Oppo", "Samsung", "Vivo")
+df_top <- df_usa %>% 
+  filter(company_name %in% top_brands) %>%
+  mutate(company_name = factor(company_name, levels = top_brands))
+
+# Create the plot
+ggplot(df_top, aes(x = battery_capacity_m_ah, 
+                   y = launched_price_usa_usd,
+                   shape = company_name,
+                   color = screen_size_inches)) +
+  geom_point(size = 4, alpha = 0.8) +
+  scale_shape_manual(values = c(16, 17, 18, 15, 19)) + # Distinct shapes
+  scale_color_gradient(low = "#2B445B", high = "#86C2F0",
+                       name = "Screen Size (inches)") +
+  scale_y_continuous(limits = c(500, 2000),
+                     breaks = c(500, 1000, 1500, 2000)) +
+  scale_x_continuous(limits = c(2000, 10000),
+                     breaks = seq(0, 10000, by = 2000)) +
+  labs(title = "Battery Capacity vs. Price for Top 5 Brands",
+       subtitle = "Different Shapes for Each Brand, Color by Screen Size (USA)",
+       x = "Battery Capacity (mAh)",
+       y = "Price (USD)") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(face = "bold", size = 14),
+    plot.subtitle = element_text(face = "italic", size = 10),
+    legend.position = "right",
+    legend.box = "vertical"
+  ) +
+  guides(
+    shape = guide_legend(title = "Brand"),
+    color = guide_colorbar(title.position = "top")
+  )
